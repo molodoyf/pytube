@@ -17,6 +17,7 @@ from pytube.helpers import install_proxy
 from pytube.innertube import InnerTube
 from pytube.metadata import YouTubeMetadata
 from pytube.monostate import Monostate
+from pytube.reasons import PLAYER_FOR_REASON
 
 logger = logging.getLogger(__name__)
 
@@ -156,9 +157,15 @@ class YouTube:
         """Return streamingData from video info."""
         if 'streamingData' in self.vid_info:
             return self.vid_info['streamingData']
-        else:
-            self.bypass_age_gate()
+
+        reason = self.vid_info['playabilityStatus'].get('reason', None)
+        if reason in PLAYER_FOR_REASON:
+            self.update_vid_info_with(PLAYER_FOR_REASON[reason])
             return self.vid_info['streamingData']
+
+        # by default go to age gate bypassing
+        self.bypass_age_gate()
+        return self.vid_info['streamingData']
 
     @property
     def fmt_streams(self):
@@ -246,6 +253,21 @@ class YouTube:
         innertube_response = innertube.player(self.video_id)
         self._vid_info = innertube_response
         return self._vid_info
+
+    def update_vid_info_with(self, client='ANDROID'):
+        """Attempt to update the vid_info by using client passed as arg."""
+        innertube = InnerTube(
+            client=client,
+            use_oauth=self.use_oauth,
+            allow_cache=self.allow_oauth_cache
+        )
+
+        innertube_response = innertube.player(self.video_id)
+        playability_status = innertube_response['playabilityStatus'].get('status', None)
+        # If we still can't access the video, raise an exception
+        if playability_status == 'UNPLAYABLE':
+            raise exceptions.VideoUnavailable(self.video_id)
+        self._vid_info = innertube_response
 
     def bypass_age_gate(self):
         """Attempt to update the vid_info by bypassing the age gate."""
